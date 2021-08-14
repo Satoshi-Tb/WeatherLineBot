@@ -1,0 +1,4 @@
+line-bot-sdk
+requests
+lxml
+flask==2.0.1
