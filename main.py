@@ -77,18 +77,14 @@ def handle_message(event):
     try:
         # 検索結果候補
         geo_info = get_geo_info_from_text(event.message.text)
-        print(len(geo_info))
         if len(geo_info) == 1:
-            print(geo_info)
             lon, lat = geo_info[0]["geometry"]["coordinates"]
             weather_data = get_weather_from_geocode(lat, lon)
-            print(weather_data)
             if len(weather_data) == 0:
                 message = ng_message
             else:
                 message = create_message_from_weather_data(weather_data)
 
-            print(message)
             messages = TextSendMessage(text=message)
 
         elif len(geo_info) == 0:
