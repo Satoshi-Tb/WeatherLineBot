@@ -17,6 +17,7 @@ from __future__ import unicode_literals
 import os
 import sys
 import requests
+import urllib
 from lxml import etree
 from flask import Flask, request, abort
 from linebot import (
@@ -26,7 +27,7 @@ from linebot.exceptions import (
     InvalidSignatureError
 )
 from linebot.models import (
-    MessageEvent, TextMessage, TextSendMessage, LocationMessage,
+    MessageEvent, TextMessage, TextSendMessage, LocationMessage, CarouselColumn, TemplateSendMessage, CarouselTemplate,
 )
 import muni
 
@@ -61,6 +62,7 @@ def callback():
     try:
         handler.handle(body, signature)
     except InvalidSignatureError:
+        print(InvalidSignatureError)
         abort(400)
 
     return 'OK'
@@ -70,11 +72,85 @@ def callback():
 @handler.add(MessageEvent, message=TextMessage)
 def handle_message(event):
     # TODO 受信メッセージから住所情報取得し、天気予報を取得する
-    message = event.message.text
+    # TODO 県名か、市名を入力してもらう
+    ng_message = "天気予報が取得できませんでした(;><)"
+
+    try:
+        # 検索結果候補
+        geo_info = get_geo_info_from_text(event.message.text)
+        if len(geo_info) == 1:
+            lon, lat = geo_info[0]["geometry"]["coordinates"]
+            messages = TextSendMessage(text=get_weather_from_geocode(lat, lon))
+
+        elif len(geo_info) == 0:
+            message = "該当する住所が見つかりません！\n検索キーワードを見直してください"
+            messages = TextSendMessage(text=message)
+
+        elif len(geo_info) > 5:
+            message = "検索結果が多すぎます。。。\n検索キーワードを見直してください"
+            messages = TextSendMessage(text=message)
+
+        else:
+            # notesのCarouselColumnの各値は、変更してもらって結構です。
+            notes = [CarouselColumn(thumbnail_image_url="https://renttle.jp/static/img/renttle02.jpg",
+                                    title="【ReleaseNote】トークルームを実装しました。",
+                                    text="creation(創作中・考え中の何かしらのモノ・コト)に関して、意見を聞けるようにトークルーム機能を追加しました。",
+                                    actions=[{"type": "message", "label": "サイトURL",
+                                              "text": "https://renttle.jp/notes/kota/7"}]),
+
+                     CarouselColumn(thumbnail_image_url="https://renttle.jp/static/img/renttle03.jpg",
+                                    title="ReleaseNote】創作中の活動を報告する機能を追加しました。",
+                                    text="創作中や考え中の時点の活動を共有できる機能を追加しました。",
+                                    actions=[
+                                        {"type": "message", "label": "サイトURL",
+                                         "text": "https://renttle.jp/notes/kota/6"}]),
+
+                     CarouselColumn(thumbnail_image_url="https://renttle.jp/static/img/renttle04.jpg",
+                                    title="【ReleaseNote】タグ機能を追加しました。",
+                                    text="「イベントを作成」「記事を投稿」「本を登録」にタグ機能を追加しました。",
+                                    actions=[
+                                        {"type": "message", "label": "サイトURL",
+                                         "text": "https://renttle.jp/notes/kota/5"}])]
+
+            messages = TemplateSendMessage(
+                alt_text='template',
+                template=CarouselTemplate(columns=notes),
+            )
+
+    except Exception as e:
+        print(f"handle_message error\n{e}")
+        messages = TextSendMessage(text=ng_message)
 
     line_bot_api.reply_message(
         event.reply_token,
-        TextSendMessage(text=message))
+        messages=messages)
+
+#
+def get_geo_info_from_text(address_text):
+    try:
+        quoted = urllib.parse.quote(address_text)
+        request_uri = f"https://msearch.gsi.go.jp/address-search/AddressSearch?q={quoted}"
+        resp_data = requests.get(request_uri)
+        if resp_data.status_code != 200:
+            print(f"get_weather_from_text error: Weather area data request error. \nURI={request_uri}\nstatus code={resp_data.status_code}")
+            return {}
+
+        data = resp_data.json()
+        if len(data) == 0:
+            print(f"get_weather_from_text error: 検索結果なし. キーワード = '{address_text}'")
+            return {"error": "該当する住所が見つかりません！\n検索キーワードを見直してください"}
+
+        if len(data) > 5:
+            print(f"get_weather_from_text error: 検索結果が5件超過. {len(data)}件.")
+            return {"error": "検索結果が多すぎます。。。\n検索キーワードを見直してください"}
+
+        if len(data) == 1:
+            return get_weather_from_geocode(data[0]["geometry"]["coordinates"][1], data[0]["geometry"]["coordinates"][0])
+
+        return {}
+    except Exception as e:
+        print(f"get_weather_from_text error: '{e}'")
+        return {}
 
 
 # ロケーションメッセージハンドラ
